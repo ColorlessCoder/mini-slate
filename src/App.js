@@ -1,6 +1,7 @@
 import React from 'react';
 import { Editor } from 'slate-react';
 import { Value } from 'slate';
+import { cx, css } from "emotion";
 
 const initialValue = Value.fromJSON({
   document: {
