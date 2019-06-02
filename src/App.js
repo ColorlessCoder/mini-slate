@@ -8,6 +8,7 @@ import { Button } from './components/Button';
 import { isKeyHotkey } from 'is-hotkey';
 import { FileUpload } from './components/FileUpload';
 import { Image } from './components/ImageBlock';
+import { FileBlock } from './components/FileBlock';
 const initialValue = Value.fromJSON({
   document: {
     nodes: [
@@ -71,6 +72,7 @@ class App extends React.Component {
   }
 
   imageInputRef = React.createRef();
+  fileInputRef = React.createRef();
 
   renderMarkButton = (type, icon) => {
     const { value } = this.state;
@@ -129,9 +131,15 @@ class App extends React.Component {
     switch (node.type) {
       case 'image':
         return <Image {...props} />;
+      case 'file':
+        return <FileBlock {...props} />;
       default:
         return next();
     }
+  }
+
+  startFileUpload = () => {
+    this.fileInputRef.current.click();
   }
 
   startImageUpload = () => {
@@ -139,15 +147,47 @@ class App extends React.Component {
   }
 
   imageInputCompletion = () => {
-    const fileReader = new FileReader();
     const file = this.imageInputRef.current.files[0];
+    this.handleImageInsert(file);
+  }
+
+  fileInputCompletion = () => {
+    const file = this.fileInputRef.current.files[0];
+    if(!file) return;
+    if(!this.handleImageInsert(file)) {
+      this.handleFileInsert(file);
+    }
+  }
+
+  handleFileInsert = (file) => {
+    if(!file) return false;
+    const fileReader = new FileReader();
+    if (file.type.includes('application/pdf') || file.type.includes('text/plain')) {
+      fileReader.readAsDataURL(file);
+      fileReader.onload = () => {
+        this.editor.command(this.createFileBlock, fileReader.result, file.name,
+            file.type.includes('application/pdf') ? 'pdf': 'txt'
+          );
+        this.fileInputRef.current.value = null;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  handleImageInsert = (file) => {
+    if(!file) return false;
+    const fileReader = new FileReader();
     if (file.type.includes('image/')) {
       fileReader.readAsDataURL(file);
       fileReader.onload = () => {
         this.editor.command(this.createImageBlock, fileReader.result, file.name);
         this.imageInputRef.current.value = null;
+        this.fileInputRef.current.value = null;
       }
+      return true;
     }
+    return false;
   }
 
   createImageBlock = (editor, src, alt) => {
@@ -156,6 +196,17 @@ class App extends React.Component {
       data: {
         src,
         alt
+      }
+    });
+  }
+
+  createFileBlock = (editor, src, alt, fileType) => {
+    editor.insertBlock({
+      type: 'file',
+      data: {
+        src,
+        alt,
+        fileType
       }
     });
   }
@@ -172,8 +223,9 @@ class App extends React.Component {
           <Button ><Icon>format_list_bulleted</Icon></Button>
           <Button ><Icon>format_list_numbered</Icon></Button>
           <Button onClick={this.startImageUpload} ><Icon>insert_photo</Icon></Button>
-          <Button ><Icon>attach_file</Icon></Button>
+          <Button onClick={this.startFileUpload} ><Icon>attach_file</Icon></Button>
           <FileUpload accepttype={'image'} ref={this.imageInputRef} onChange={this.imageInputCompletion} />
+          <FileUpload ref={this.fileInputRef} onChange={this.fileInputCompletion} />
         </Toolbar>
         <Editor
           ref={this.ref}
