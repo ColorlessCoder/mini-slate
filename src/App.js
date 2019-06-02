@@ -53,6 +53,9 @@ const schema = {
     image: {
       isVoid: true,
     },
+    file: {
+      isVoid: true,
+    },
   },
 }
 // Define our app...
