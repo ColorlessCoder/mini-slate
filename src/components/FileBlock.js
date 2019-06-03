@@ -1,12 +1,10 @@
 import React from 'react';
 import { cx, css } from 'emotion';
 
-export const FileBlock = React.forwardRef(({ className, ...props }, ref) => {
-    const { node, attributes, isFocused } = props;
+export const FileBlock = (props) => {
+    const { node, attributes, isFocused, className } = props;
     const pdfSrc = 'https://image.flaticon.com/icons/svg/29/29587.svg';
     const txtSrc = 'https://cdn0.iconfinder.com/data/icons/file-extension-line-icon/100/txtb-512.png';
-
-    const downloadTrigger = React.createRef();
     let triggerDownload = (event) => {
         if (window.confirm('Download the file?')) {
             const link = document.createElement('a');
@@ -23,7 +21,6 @@ export const FileBlock = React.forwardRef(({ className, ...props }, ref) => {
         <img
             {...attributes}
             onClick={(event) => triggerDownload(event)}
-            ref={ref}
             src={node.data.get('fileType') === 'pdf' ? pdfSrc : txtSrc}
             alt={node.data.get('alt')}
             className={
@@ -40,4 +37,4 @@ export const FileBlock = React.forwardRef(({ className, ...props }, ref) => {
             }
         />
     );
-})
+};

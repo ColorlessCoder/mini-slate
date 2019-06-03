@@ -1,12 +1,11 @@
 import React from 'react';
 import { cx, css } from 'emotion';
 
-export const Image = React.forwardRef(({ className, ...props }, ref) => {
-    const {node, attributes, isFocused} = props;
+export const Image = (props) => {
+    const {node, attributes, isFocused, className} = props;
     return (
         <img
             {...attributes}
-            ref={ref}
             src={node.data.get('src')}
             alt={node.data.get('alt')}
             className={
@@ -23,4 +22,4 @@ export const Image = React.forwardRef(({ className, ...props }, ref) => {
             }
         />
     );
-})
+}
