@@ -9,29 +9,19 @@ import { isKeyHotkey } from 'is-hotkey';
 import { FileUpload } from './components/FileUpload';
 import { Image } from './components/ImageBlock';
 import { FileBlock } from './components/FileBlock';
+import lodash from 'lodash';
 const DEFAULT_NODE = 'paragraph';
 const MAX_RIGHT_INDENT_LIMIT = 3;
-const initialValue = Value.fromJSON({
+const INITIAL_VALUE = {
   document: {
     nodes: [
       {
         object: 'block',
         type: 'paragraph',
-        nodes: [
-          {
-            object: 'text',
-            leaves: [
-              {
-                text: 'A line of text in a paragraph.',
-              },
-            ],
-          },
-        ],
       },
     ],
-  },
-});
-
+  }
+};
 const isBoldHotKey = isKeyHotkey('mod+b');
 const isItalicHotKey = isKeyHotkey('mod+i');
 const isUnderlinedHotKey = isKeyHotkey('mod+u');
@@ -65,17 +55,38 @@ const schema = {
 // Define our app...
 class App extends React.Component {
   // Set the initial value when the app is first constructed.
-  state = {
-    value: initialValue,
+  constructor(props) {
+    super(props);
+    const value = window.localStorage.getItem('editorValue') ? Value.fromJSON(JSON.parse(lodash.cloneDeep(window.localStorage.getItem('editorValue')))) : Value.fromJSON(INITIAL_VALUE);
+    const blockLimit = window.localStorage.getItem('blockLimit') ? Number.parseInt(window.localStorage.getItem('blockLimit')) : -1
+    this.state = {
+      value,
+      blockLimit
+    }
   }
+
 
   // On change, update the app's React state with the new editor value.
   onChange = ({ value }) => {
-    this.setState({ value })
+    this.setState({
+      value
+    })
   }
 
   ref = (editor) => {
     this.editor = editor;
+  }
+
+  saveEditor = () => {
+    window.localStorage.setItem('editorValue', JSON.stringify(this.state.value.toJSON()));
+    window.localStorage.setItem('blockLimit', this.state.blockLimit);
+  }
+
+  cancelChanges = () => {
+    this.setState({
+      value: window.localStorage.getItem('editorValue') ? Value.fromJSON(JSON.parse(lodash.cloneDeep(window.localStorage.getItem('editorValue')))) : Value.fromJSON(INITIAL_VALUE),
+      blockLimit: window.localStorage.getItem('blockLimit') ? Number.parseInt(window.localStorage.getItem('blockLimit')) : -1
+    });
   }
 
   imageInputRef = React.createRef();
@@ -147,14 +158,14 @@ class App extends React.Component {
     const isUnOrderedList = value.blocks.some(block => {
       return !!value.document.getClosest(block.key, parent => parent.type === 'unordered-list');
     });
-    const listType = isUnOrderedList ? 'unordered-list': 'number-list';
-    if(isNumberList && isUnOrderedList) {
+    const listType = isUnOrderedList ? 'unordered-list' : 'number-list';
+    if (isNumberList && isUnOrderedList) {
       return;
     }
     const canContinue = !value.blocks.some(block => {
       return block.type !== 'list-item' || value.document.getAncestors(block.key).toArray().filter(node => node.type === listType).length >= MAX_RIGHT_INDENT_LIMIT
     });
-    if(canContinue) {
+    if (canContinue) {
       this.editor
         .setBlocks('list-item')
         .wrapBlock(listType);
@@ -169,17 +180,17 @@ class App extends React.Component {
     const isUnOrderedList = value.blocks.some(block => {
       return !!value.document.getClosest(block.key, parent => parent.type === 'unordered-list');
     });
-    if(isNumberList && isUnOrderedList) {
+    if (isNumberList && isUnOrderedList) {
       return;
     }
-    const listType = isUnOrderedList ? 'unordered-list': 'number-list';
+    const listType = isUnOrderedList ? 'unordered-list' : 'number-list';
     const canContinue = !value.blocks.some(block => {
-      return block.type !== 'list-item' || value.document.getAncestors(block.key).toArray().filter(node => node.type === listType).length <=1;
+      return block.type !== 'list-item' || value.document.getAncestors(block.key).toArray().filter(node => node.type === listType).length <= 1;
     });
-    if(canContinue) {
+    if (canContinue) {
       this.editor
-      .unwrapBlock(listType)
-      .setBlocks('list-item')
+        .unwrapBlock(listType)
+        .setBlocks('list-item');
     }
   }
 
@@ -195,11 +206,11 @@ class App extends React.Component {
       mark = 'code'
     } else if (isStrikeThroughHotKey(event)) {
       mark = 'strikethrough'
-    } else if(isTabKey(event)){
+    } else if (isTabKey(event)) {
       event.preventDefault();
       this.listIndentRight();
       return next();
-    } else if(isShiftTabKey(event)){
+    } else if (isShiftTabKey(event)) {
       event.preventDefault();
       this.listIndentLeft();
       return next();
@@ -324,6 +335,7 @@ class App extends React.Component {
   }
 
   render() {
+    const disableSave = this.state.blockLimit > 0 && this.state.value && this.state.value.document ? this.state.value.document.getBlocks(this.state.value.document.key).toArray().length > this.state.blockLimit : false;
     return (
       <div style={{ width: '60%', backgroundColor: 'white', margin: '10px auto', padding: '20px' }}>
         <Toolbar>
@@ -340,6 +352,18 @@ class App extends React.Component {
           {this.renderBlockButton('file', 'attach_file')}
           <FileUpload accepttype={'image'} ref={this.imageInputRef} onChange={this.imageInputCompletion} />
           <FileUpload ref={this.fileInputRef} onChange={this.fileInputCompletion} />
+          <Button active={true} style={{ float: 'right' }} onClick={this.cancelChanges}><Icon>cancel</Icon></Button>
+          <Button active={!disableSave} style={{ float: 'right' }} onClick={!disableSave ? this.saveEditor : () => { }}><Icon>save</Icon></Button>
+          <input type="number" style={{
+            height: '100%',
+            fontSize: '18px',
+            width: '100px',
+            verticalAlign: 'text-bottom',
+            float: 'right'
+          }} placeholder='Block Limit' value={this.state.blockLimit} onChange={(event) => {
+            const val = !Number.isNaN(event.target.value) ? event.target.value : 0;
+            this.setState({ blockLimit: val });
+          }} />
         </Toolbar>
         <Editor
           ref={this.ref}
