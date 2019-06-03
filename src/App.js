@@ -9,6 +9,8 @@ import { isKeyHotkey } from 'is-hotkey';
 import { FileUpload } from './components/FileUpload';
 import { Image } from './components/ImageBlock';
 import { FileBlock } from './components/FileBlock';
+const DEFAULT_NODE = 'paragraph';
+const MAX_RIGHT_INDENT_LIMIT = 3;
 const initialValue = Value.fromJSON({
   document: {
     nodes: [
@@ -35,6 +37,8 @@ const isItalicHotKey = isKeyHotkey('mod+i');
 const isUnderlinedHotKey = isKeyHotkey('mod+u');
 const isCodeHotKey = isKeyHotkey('mod+`');
 const isStrikeThroughHotKey = isKeyHotkey('mod+d');
+const isTabKey = isKeyHotkey('tab');
+const isShiftTabKey = isKeyHotkey('shift+tab');
 
 const schema = {
   document: {
@@ -87,9 +91,96 @@ class App extends React.Component {
     )
   }
 
+  renderBlockButton = (type, icon) => {
+    const { value } = this.state;
+    const active = value.blocks.some(node => node.type === type);
+    return (
+      <Button onClick={event => this.clickBlock(event, type)} active={active}>
+        <Icon>{icon}</Icon>
+      </Button>
+    )
+  }
+
   clickMark = (event, type) => {
     event.preventDefault();
     this.editor.toggleMark(type);
+  }
+
+  clickBlock = (event, type) => {
+    event.preventDefault();
+    const { value } = this.state;
+    const active = value.blocks.some(block => block.type === type);
+    if (type === 'image') {
+      this.startImageUpload();
+    } else if (type === 'file') {
+      this.startFileUpload();
+    } else if (['unordered-list', 'number-list'].includes(type)) {
+      const listExists = value.blocks.some(block => block.type === 'list-item');
+      const typeExists = value.blocks.some(block => {
+        return !!value.document.getClosest(block.key, node => node.type === type);
+      });
+
+      if (listExists && typeExists) {
+        this.editor
+          .setBlocks(DEFAULT_NODE)
+          .unwrapBlock('unordered-list')
+          .unwrapBlock('number-list');
+      } else if (listExists) {
+        this.editor
+          .unwrapBlock(type === 'unordered-list' ? 'number-list' : 'unordered-list')
+          .setBlocks(DEFAULT_NODE)
+          .setBlocks('list-item')
+          .wrapBlock(type);
+      } else {
+        this.editor.setBlocks('list-item').wrapBlock(type);
+      }
+    } else {
+      this.editor.setBlocks(!active ? type : DEFAULT_NODE);
+    }
+  }
+
+  listIndentRight = () => {
+    const { value } = this.state;
+    const isNumberList = value.blocks.some(block => {
+      return !!value.document.getClosest(block.key, parent => parent.type === 'number-list');
+    });
+    const isUnOrderedList = value.blocks.some(block => {
+      return !!value.document.getClosest(block.key, parent => parent.type === 'unordered-list');
+    });
+    const listType = isUnOrderedList ? 'unordered-list': 'number-list';
+    if(isNumberList && isUnOrderedList) {
+      return;
+    }
+    const canContinue = !value.blocks.some(block => {
+      return block.type !== 'list-item' || value.document.getAncestors(block.key).toArray().filter(node => node.type === listType).length >= MAX_RIGHT_INDENT_LIMIT
+    });
+    if(canContinue) {
+      this.editor
+        .setBlocks('list-item')
+        .wrapBlock(listType);
+    }
+  }
+
+  listIndentLeft = () => {
+    const { value } = this.state;
+    const isNumberList = value.blocks.some(block => {
+      return !!value.document.getClosest(block.key, parent => parent.type === 'number-list');
+    });
+    const isUnOrderedList = value.blocks.some(block => {
+      return !!value.document.getClosest(block.key, parent => parent.type === 'unordered-list');
+    });
+    if(isNumberList && isUnOrderedList) {
+      return;
+    }
+    const listType = isUnOrderedList ? 'unordered-list': 'number-list';
+    const canContinue = !value.blocks.some(block => {
+      return block.type !== 'list-item' || value.document.getAncestors(block.key).toArray().filter(node => node.type === listType).length <=1;
+    });
+    if(canContinue) {
+      this.editor
+      .unwrapBlock(listType)
+      .setBlocks('list-item')
+    }
   }
 
   onKeyDown = (event, editor, next) => {
@@ -104,6 +195,14 @@ class App extends React.Component {
       mark = 'code'
     } else if (isStrikeThroughHotKey(event)) {
       mark = 'strikethrough'
+    } else if(isTabKey(event)){
+      event.preventDefault();
+      this.listIndentRight();
+      return next();
+    } else if(isShiftTabKey(event)){
+      event.preventDefault();
+      this.listIndentLeft();
+      return next();
     } else {
       return next();
     }
@@ -130,12 +229,22 @@ class App extends React.Component {
   }
 
   renderBlock = (props, editor, next) => {
-    const { children, isFocused, node } = props;
+    const { children, node, attributes } = props;
     switch (node.type) {
       case 'image':
         return <Image {...props} />;
       case 'file':
         return <FileBlock {...props} />;
+      case 'header-1':
+        return <h1 {...attributes}>{children}</h1>;
+      case 'header-2':
+        return <h2 {...attributes}>{children}</h2>;
+      case 'list-item':
+        return <li {...attributes}>{children}</li>;
+      case 'unordered-list':
+        return <ul {...attributes}>{children}</ul>;
+      case 'number-list':
+        return <ol {...attributes}>{children}</ol>;
       default:
         return next();
     }
@@ -156,21 +265,21 @@ class App extends React.Component {
 
   fileInputCompletion = () => {
     const file = this.fileInputRef.current.files[0];
-    if(!file) return;
-    if(!this.handleImageInsert(file)) {
+    if (!file) return;
+    if (!this.handleImageInsert(file)) {
       this.handleFileInsert(file);
     }
   }
 
   handleFileInsert = (file) => {
-    if(!file) return false;
+    if (!file) return false;
     const fileReader = new FileReader();
     if (file.type.includes('application/pdf') || file.type.includes('text/plain')) {
       fileReader.readAsDataURL(file);
       fileReader.onload = () => {
         this.editor.command(this.createFileBlock, fileReader.result, file.name,
-            file.type.includes('application/pdf') ? 'pdf': 'txt'
-          );
+          file.type.includes('application/pdf') ? 'pdf' : 'txt'
+        );
         this.fileInputRef.current.value = null;
       }
       return true;
@@ -179,7 +288,7 @@ class App extends React.Component {
   }
 
   handleImageInsert = (file) => {
-    if(!file) return false;
+    if (!file) return false;
     const fileReader = new FileReader();
     if (file.type.includes('image/')) {
       fileReader.readAsDataURL(file);
@@ -223,10 +332,12 @@ class App extends React.Component {
           {this.renderMarkButton('underlined', 'format_underline')}
           {this.renderMarkButton('strikethrough', 'strikethrough_s')}
           {this.renderMarkButton('code', 'code')}
-          <Button ><Icon>format_list_bulleted</Icon></Button>
-          <Button ><Icon>format_list_numbered</Icon></Button>
-          <Button onClick={this.startImageUpload} ><Icon>insert_photo</Icon></Button>
-          <Button onClick={this.startFileUpload} ><Icon>attach_file</Icon></Button>
+          {this.renderBlockButton('header-1', 'looks_one')}
+          {this.renderBlockButton('header-2', 'looks_two')}
+          {this.renderBlockButton('unordered-list', 'format_list_bulleted')}
+          {this.renderBlockButton('number-list', 'format_list_numbered')}
+          {this.renderBlockButton('image', 'insert_photo')}
+          {this.renderBlockButton('file', 'attach_file')}
           <FileUpload accepttype={'image'} ref={this.imageInputRef} onChange={this.imageInputCompletion} />
           <FileUpload ref={this.fileInputRef} onChange={this.fileInputCompletion} />
         </Toolbar>
