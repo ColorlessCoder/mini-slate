@@ -1,7 +1,6 @@
 import React from 'react';
 import { Editor } from 'slate-react';
 import { Block, Value } from 'slate';
-import { cx, css } from "emotion";
 import { Toolbar } from './components/Toolbar';
 import { Icon } from './components/Icon';
 import { Button } from './components/Button';
@@ -9,6 +8,7 @@ import { isKeyHotkey } from 'is-hotkey';
 import { FileUpload } from './components/FileUpload';
 import { Image } from './components/ImageBlock';
 import { FileBlock } from './components/FileBlock';
+import Lists from './plugins/custom-slate-list/index';
 import lodash from 'lodash';
 const DEFAULT_NODE = 'paragraph';
 const MAX_RIGHT_INDENT_LIMIT = 3;
@@ -27,9 +27,16 @@ const isItalicHotKey = isKeyHotkey('mod+i');
 const isUnderlinedHotKey = isKeyHotkey('mod+u');
 const isCodeHotKey = isKeyHotkey('mod+`');
 const isStrikeThroughHotKey = isKeyHotkey('mod+d');
-const isTabKey = isKeyHotkey('tab');
-const isShiftTabKey = isKeyHotkey('shift+tab');
 
+const plugins = [Lists({
+  blocks: {
+    ordered_list: "ordered-list",
+    unordered_list: "unordered-list",
+    list_item: "list-item",
+    maximumDepth: MAX_RIGHT_INDENT_LIMIT,
+    child_block_list: ['paragraph', 'image'],
+  }
+})]
 const schema = {
   document: {
     last: { type: 'paragraph' },
@@ -52,9 +59,8 @@ const schema = {
     },
   },
 }
-// Define our app...
+
 class App extends React.Component {
-  // Set the initial value when the app is first constructed.
   constructor(props) {
     super(props);
     const value = window.localStorage.getItem('editorValue') ? Value.fromJSON(JSON.parse(lodash.cloneDeep(window.localStorage.getItem('editorValue')))) : Value.fromJSON(INITIAL_VALUE);
@@ -65,8 +71,6 @@ class App extends React.Component {
     }
   }
 
-
-  // On change, update the app's React state with the new editor value.
   onChange = ({ value }) => {
     this.setState({
       value
@@ -104,7 +108,12 @@ class App extends React.Component {
 
   renderBlockButton = (type, icon) => {
     const { value } = this.state;
-    const active = value.blocks.some(node => node.type === type);
+    let active = value.blocks.some(node => node.type === type);
+    if (['unordered-list', 'ordered-list']) {
+      active = active || value.blocks.some(node => {
+        return !!value.document.getClosest(node.key, parent => parent.type === type);
+      });
+    }
     return (
       <Button onClick={event => this.clickBlock(event, type)} active={active}>
         <Icon>{icon}</Icon>
@@ -125,72 +134,10 @@ class App extends React.Component {
       this.startImageUpload();
     } else if (type === 'file') {
       this.startFileUpload();
-    } else if (['unordered-list', 'number-list'].includes(type)) {
-      const listExists = value.blocks.some(block => block.type === 'list-item');
-      const typeExists = value.blocks.some(block => {
-        return !!value.document.getClosest(block.key, node => node.type === type);
-      });
-
-      if (listExists && typeExists) {
-        this.editor
-          .setBlocks(DEFAULT_NODE)
-          .unwrapBlock('unordered-list')
-          .unwrapBlock('number-list');
-      } else if (listExists) {
-        this.editor
-          .unwrapBlock(type === 'unordered-list' ? 'number-list' : 'unordered-list')
-          .setBlocks(DEFAULT_NODE)
-          .setBlocks('list-item')
-          .wrapBlock(type);
-      } else {
-        this.editor.setBlocks('list-item').wrapBlock(type);
-      }
+    } else if (['unordered-list', 'ordered-list'].includes(type)) {
+      this.editor.toggleList({ type: type });
     } else {
       this.editor.setBlocks(!active ? type : DEFAULT_NODE);
-    }
-  }
-
-  listIndentRight = () => {
-    const { value } = this.state;
-    const isNumberList = value.blocks.some(block => {
-      return !!value.document.getClosest(block.key, parent => parent.type === 'number-list');
-    });
-    const isUnOrderedList = value.blocks.some(block => {
-      return !!value.document.getClosest(block.key, parent => parent.type === 'unordered-list');
-    });
-    const listType = isUnOrderedList ? 'unordered-list' : 'number-list';
-    if (isNumberList && isUnOrderedList) {
-      return;
-    }
-    const canContinue = !value.blocks.some(block => {
-      return block.type !== 'list-item' || value.document.getAncestors(block.key).toArray().filter(node => node.type === listType).length >= MAX_RIGHT_INDENT_LIMIT
-    });
-    if (canContinue) {
-      this.editor
-        .setBlocks('list-item')
-        .wrapBlock(listType);
-    }
-  }
-
-  listIndentLeft = () => {
-    const { value } = this.state;
-    const isNumberList = value.blocks.some(block => {
-      return !!value.document.getClosest(block.key, parent => parent.type === 'number-list');
-    });
-    const isUnOrderedList = value.blocks.some(block => {
-      return !!value.document.getClosest(block.key, parent => parent.type === 'unordered-list');
-    });
-    if (isNumberList && isUnOrderedList) {
-      return;
-    }
-    const listType = isUnOrderedList ? 'unordered-list' : 'number-list';
-    const canContinue = !value.blocks.some(block => {
-      return block.type !== 'list-item' || value.document.getAncestors(block.key).toArray().filter(node => node.type === listType).length <= 1;
-    });
-    if (canContinue) {
-      this.editor
-        .unwrapBlock(listType)
-        .setBlocks('list-item');
     }
   }
 
@@ -206,14 +153,6 @@ class App extends React.Component {
       mark = 'code'
     } else if (isStrikeThroughHotKey(event)) {
       mark = 'strikethrough'
-    } else if (isTabKey(event)) {
-      event.preventDefault();
-      this.listIndentRight();
-      return next();
-    } else if (isShiftTabKey(event)) {
-      event.preventDefault();
-      this.listIndentLeft();
-      return next();
     } else {
       return next();
     }
@@ -254,7 +193,7 @@ class App extends React.Component {
         return <li {...attributes}>{children}</li>;
       case 'unordered-list':
         return <ul {...attributes}>{children}</ul>;
-      case 'number-list':
+      case 'ordered-list':
         return <ol {...attributes}>{children}</ol>;
       default:
         return next();
@@ -335,7 +274,10 @@ class App extends React.Component {
   }
 
   render() {
-    const disableSave = this.state.blockLimit > 0 && this.state.value && this.state.value.document ? this.state.value.document.getBlocks(this.state.value.document.key).toArray().length > this.state.blockLimit : false;
+    console.log(this.state.value.document.getRootBlocksAtRange());
+    const disableSave = this.state.blockLimit > 0
+      && this.state.value
+      && this.state.value.document ? this.state.value.document.getRootBlocksAtRange().toArray().length > this.state.blockLimit : false;
     return (
       <div style={{ width: '60%', backgroundColor: 'white', margin: '10px auto', padding: '20px' }}>
         <Toolbar>
@@ -347,7 +289,7 @@ class App extends React.Component {
           {this.renderBlockButton('header-1', 'looks_one')}
           {this.renderBlockButton('header-2', 'looks_two')}
           {this.renderBlockButton('unordered-list', 'format_list_bulleted')}
-          {this.renderBlockButton('number-list', 'format_list_numbered')}
+          {this.renderBlockButton('ordered-list', 'format_list_numbered')}
           {this.renderBlockButton('image', 'insert_photo')}
           {this.renderBlockButton('file', 'attach_file')}
           <FileUpload accepttype={'image'} ref={this.imageInputRef} onChange={this.imageInputCompletion} />
@@ -368,6 +310,7 @@ class App extends React.Component {
         <Editor
           ref={this.ref}
           schema={schema}
+          plugins={plugins}
           value={this.state.value}
           onChange={this.onChange}
           onKeyDown={this.onKeyDown}
